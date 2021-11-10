@@ -125,7 +125,7 @@ func NewServiceDiscovery(
 			instancesBySE: map[types.NamespacedName]map[configKey][]*model.ServiceInstance{},
 		},
 		workloadInstances: workloadInstancesStore{
-			instancesByKey: map[string]*model.WorkloadInstance{},
+			instancesByKey: map[types.NamespacedName]*model.WorkloadInstance{},
 		},
 		services: serviceStore{
 			servicesBySE: map[types.NamespacedName][]*model.Service{},
@@ -172,9 +172,6 @@ func (s *ServiceEntryStore) workloadEntryHandler(old, curr config.Config, event 
 		for _, h := range s.workloadHandlers {
 			h(wi, event)
 		}
-	} else {
-		// in case workloadInstances store mem leak
-		event = model.EventDelete
 	}
 
 	// includes instances new updated or unchanged, in other word it is the current state.
@@ -196,7 +193,7 @@ func (s *ServiceEntryStore) workloadEntryHandler(old, curr config.Config, event 
 
 	cfgs, _ := s.store.List(gvk.ServiceEntry, curr.Namespace)
 	currSes := getWorkloadServiceEntries(cfgs, wle)
-	var oldSes map[types.NamespacedName]struct{}
+	var oldSes map[types.NamespacedName]*config.Config
 	if oldWle != nil {
 		if reflect.DeepEqual(oldWle.Labels, wle.Labels) {
 			oldSes = currSes
@@ -204,12 +201,11 @@ func (s *ServiceEntryStore) workloadEntryHandler(old, curr config.Config, event 
 			oldSes = getWorkloadServiceEntries(cfgs, oldWle)
 		}
 	}
-	selected, unSelected := compareServiceEntries(oldSes, currSes)
-	log.Debugf("workloadEntry %v select serviceEntry, selected %v, unSelected %v", selected, unSelected)
+	unSelected := difference(oldSes, currSes)
+	log.Debugf("workloadEntry %s/%s selected %v, unSelected %v serviceEntry", curr.Namespace, curr.Name, currSes, unSelected)
 	s.mutex.Lock()
-	for _, namespacedName := range selected {
+	for namespacedName, cfg := range currSes {
 		services := s.services.getServices(namespacedName)
-		cfg := s.store.Get(gvk.ServiceEntry, namespacedName.Name, namespacedName.Namespace)
 		se := cfg.Spec.(*networking.ServiceEntry)
 		instance := s.convertWorkloadEntryToServiceInstances(wle, services, se, &key, s.Cluster())
 		instancesUpdated = append(instancesUpdated, instance...)
@@ -218,7 +214,7 @@ func (s *ServiceEntryStore) workloadEntryHandler(old, curr config.Config, event 
 
 	for _, namespacedName := range unSelected {
 		services := s.services.getServices(namespacedName)
-		cfg := s.store.Get(gvk.ServiceEntry, namespacedName.Name, namespacedName.Namespace)
+		cfg := oldSes[namespacedName]
 		se := cfg.Spec.(*networking.ServiceEntry)
 		instance := s.convertWorkloadEntryToServiceInstances(wle, services, se, &key, s.Cluster())
 		instancesDeleted = append(instancesDeleted, instance...)
@@ -226,9 +222,8 @@ func (s *ServiceEntryStore) workloadEntryHandler(old, curr config.Config, event 
 	}
 
 	s.serviceInstances.deleteInstances(key, instancesDeleted)
-	wleKey := keyFunc(curr.Namespace, curr.Name)
 	if event == model.EventDelete {
-		s.workloadInstances.delete(wleKey)
+		s.workloadInstances.delete(types.NamespacedName{Namespace: curr.Namespace, Name: curr.Name})
 		s.serviceInstances.deleteInstances(key, instancesUpdated)
 	} else {
 		s.workloadInstances.update(wi)
@@ -315,13 +310,8 @@ func (s *ServiceEntryStore) serviceEntryHandler(_, curr config.Config, event mod
 	}
 
 	if len(unchangedSvcs) > 0 {
-		// If this service entry had endpoints with IPs (i.e. resolution STATIC), then we do EDS update.
-		// If the service entry had endpoints with FQDNs (i.e. resolution DNS), then we need to do
-		// full push (as fqdn endpoints go via strict_dns clusters in cds).
-		// Non DNS service entries are sent via EDS.
-		// Trigger full push when DNS resolution ServiceEntry in case endpoint changes.
+		// Trigger full push for DNS resolution ServiceEntry in case endpoint changes.
 		if currentServiceEntry.Resolution == networking.ServiceEntry_DNS || currentServiceEntry.Resolution == networking.ServiceEntry_DNS_ROUND_ROBIN {
-			// fqdn endpoints have changed. Need full push
 			for _, svc := range unchangedSvcs {
 				configsUpdated[makeConfigKey(svc)] = struct{}{}
 			}
@@ -395,7 +385,7 @@ func (s *ServiceEntryStore) WorkloadInstanceHandler(wi *model.WorkloadInstance, 
 	s.mutex.Lock()
 	// this is from a pod. Store it in separate map so that
 	// the refreshIndexes function can use these as well as the store ones.
-	k := keyFunc(wi.Namespace, wi.Name)
+	k := types.NamespacedName{Namespace: wi.Namespace, Name: wi.Name}
 	switch event {
 	case model.EventDelete:
 		if s.workloadInstances.get(k) == nil {
@@ -813,7 +803,7 @@ func (s *ServiceEntryStore) buildServiceInstancesForSE(
 	serviceInstancesByConfig := map[configKey][]*model.ServiceInstance{}
 	// for service entry with labels
 	if currentServiceEntry.WorkloadSelector != nil {
-		workloadInstances := s.workloadInstances.list(curr.Namespace, labels.Collection{currentServiceEntry.WorkloadSelector.Labels})
+		workloadInstances := s.workloadInstances.listUnordered(curr.Namespace, labels.Collection{currentServiceEntry.WorkloadSelector.Labels})
 		for _, wi := range workloadInstances {
 			instances := convertWorkloadInstanceToServiceInstance(wi.Endpoint, services, currentServiceEntry)
 			serviceInstances = append(serviceInstances, instances...)

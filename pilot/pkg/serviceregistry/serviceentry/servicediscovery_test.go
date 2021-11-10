@@ -204,8 +204,8 @@ func TestServiceDiscoveryGetService(t *testing.T) {
 	defer stopFn()
 
 	createConfigs([]*config.Config{httpDNS, tcpStatic}, store, t)
-	<-eventCh
-	<-eventCh
+	waitForEvent(t, eventCh)
+	waitForEvent(t, eventCh)
 	service := sd.GetService(host.Name(hostDNE))
 	if service != nil {
 		t.Errorf("GetService(%q) => should not exist, got %s", hostDNE, service.Hostname)

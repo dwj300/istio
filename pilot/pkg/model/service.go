@@ -250,11 +250,11 @@ func (instance *ServiceInstance) DeepCopy() *ServiceInstance {
 	}
 }
 
-type Kind int
+type workloadKind int
 
 const (
 	// PodKind indicates the workload is from pod
-	PodKind Kind = iota
+	PodKind workloadKind = iota
 	// WorkloadEntryKind indicates the workload is from workloadentry
 	WorkloadEntryKind
 )
@@ -263,7 +263,7 @@ type WorkloadInstance struct {
 	Name      string `json:"name,omitempty"`
 	Namespace string `json:"namespace,omitempty"`
 	// Where the workloadInstance come from, valid values are`Pod` or `WorkloadEntry`
-	Kind     Kind              `json:"kind"`
+	Kind     workloadKind      `json:"kind"`
 	Endpoint *IstioEndpoint    `json:"endpoint,omitempty"`
 	PortMap  map[string]uint32 `json:"portMap,omitempty"`
 }

@@ -91,35 +91,22 @@ func TestGetWorkloadServiceEntries(t *testing.T) {
 }
 
 func TestCompareServiceEntries(t *testing.T) {
-	oldSes := map[types.NamespacedName]struct{}{
+	oldSes := map[types.NamespacedName]*config.Config{
 		{Namespace: "default", Name: "se-1"}: {},
 		{Namespace: "default", Name: "se-2"}: {},
 		{Namespace: "default", Name: "se-3"}: {},
 	}
-	currSes := map[types.NamespacedName]struct{}{
+	currSes := map[types.NamespacedName]*config.Config{
 		{Namespace: "default", Name: "se-2"}: {},
 		{Namespace: "default", Name: "se-4"}: {},
 		{Namespace: "default", Name: "se-5"}: {},
 	}
 
-	expectedSelected := map[types.NamespacedName]struct{}{
-		{Namespace: "default", Name: "se-2"}: {},
-		{Namespace: "default", Name: "se-4"}: {},
-		{Namespace: "default", Name: "se-5"}: {},
-	}
-	expectedUnselected := map[types.NamespacedName]struct{}{
+	expectedUnselected := map[types.NamespacedName]*config.Config{
 		{Namespace: "default", Name: "se-1"}: {},
 		{Namespace: "default", Name: "se-3"}: {},
 	}
-	selected, unSelected := compareServiceEntries(oldSes, currSes)
-	if len(selected) != len(expectedSelected) {
-		t.Errorf("got unexpected selected ses %v", selected)
-	}
-	for _, se := range selected {
-		if _, ok := expectedSelected[se]; !ok {
-			t.Errorf("got unexpected newSelected se %v", se)
-		}
-	}
+	unSelected := difference(oldSes, currSes)
 
 	if len(unSelected) != len(expectedUnselected) {
 		t.Errorf("got unexpected unSelected ses %v", unSelected)
