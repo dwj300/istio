@@ -90,7 +90,8 @@ func Parse(s string) Instance {
 		return MySQL
 	}
 
-	return Unsupported
+	// This hack is due to the fact that we do not rely on protocol detection.
+	return TCP
 }
 
 // IsHTTP2 is true for protocols that use HTTP/2 as transport protocol
